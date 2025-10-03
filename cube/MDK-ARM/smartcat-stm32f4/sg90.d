@@ -1,8 +1,8 @@
 smartcat-stm32f4\sg90.o: ..\..\Core\Src\sg90.c
 smartcat-stm32f4\sg90.o: ../../Core/Inc/sg90.h
-smartcat-stm32f4\sg90.o: C:\Keil_v5\ARM\ARMCC\bin\..\include\stdio.h
-smartcat-stm32f4\sg90.o: C:\Keil_v5\ARM\ARMCC\bin\..\include\stdint.h
-smartcat-stm32f4\sg90.o: C:\Keil_v5\ARM\ARMCC\bin\..\include\stdlib.h
+smartcat-stm32f4\sg90.o: C:\Keil_v5\ARM\ARMCC\Bin\..\include\stdio.h
+smartcat-stm32f4\sg90.o: C:\Keil_v5\ARM\ARMCC\Bin\..\include\stdint.h
+smartcat-stm32f4\sg90.o: C:\Keil_v5\ARM\ARMCC\Bin\..\include\stdlib.h
 smartcat-stm32f4\sg90.o: ../../Core/Inc/tim.h
 smartcat-stm32f4\sg90.o: ../../Core/Inc/main.h
 smartcat-stm32f4\sg90.o: ../../Drivers/STM32F4xx_HAL_Driver/Inc/stm32f4xx_hal.h
@@ -19,7 +19,7 @@ smartcat-stm32f4\sg90.o: ../../Drivers/CMSIS/Include/mpu_armv7.h
 smartcat-stm32f4\sg90.o: ../../Drivers/CMSIS/Device/ST/STM32F4xx/Include/system_stm32f4xx.h
 smartcat-stm32f4\sg90.o: ../../Drivers/STM32F4xx_HAL_Driver/Inc/stm32f4xx_hal.h
 smartcat-stm32f4\sg90.o: ../../Drivers/STM32F4xx_HAL_Driver/Inc/Legacy/stm32_hal_legacy.h
-smartcat-stm32f4\sg90.o: C:\Keil_v5\ARM\ARMCC\bin\..\include\stddef.h
+smartcat-stm32f4\sg90.o: C:\Keil_v5\ARM\ARMCC\Bin\..\include\stddef.h
 smartcat-stm32f4\sg90.o: ../../Drivers/STM32F4xx_HAL_Driver/Inc/stm32f4xx_hal_rcc_ex.h
 smartcat-stm32f4\sg90.o: ../../Drivers/STM32F4xx_HAL_Driver/Inc/stm32f4xx_hal_gpio.h
 smartcat-stm32f4\sg90.o: ../../Drivers/STM32F4xx_HAL_Driver/Inc/stm32f4xx_hal_gpio_ex.h

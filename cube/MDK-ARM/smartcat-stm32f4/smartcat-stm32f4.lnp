@@ -1,4 +1,4 @@
---cpu=Cortex-M4.fp.sp
+--cpu=Cortex-M4.fp
 "smartcat-stm32f4\startup_stm32f407xx.o"
 "smartcat-stm32f4\sg90.o"
 "smartcat-stm32f4\ms200.o"
