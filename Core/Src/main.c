@@ -471,27 +471,27 @@ void run(double kp, double kd, int max_dis)
     }
     double target_angle;
 	/*采用中线算法*/
-    // if(mode ==2){
 	double oppsite_side = sqrt(pow(dis_1, 2) + pow(dis_2, 2) - 2 * dis_1 * dis_2 * cos((idx_2 - idx_1) * PI / 180));
 	double mid_line = sqrt((pow(dis_1, 2)+pow(dis_2, 2))/2-pow(oppsite_side, 2)/4);
 	double offset_angle = acos((pow(dis_1, 2)+pow(mid_line, 2)-pow(oppsite_side/2, 2))/(2*dis_1*mid_line));
 	target_angle = idx_1 + offset_angle * 180 / PI;
-  //   }
+  double error_mid = target_angle - 180;
 	// /*采用比例算法*/
-  // if(mode == 1){
-	// double lambda = 0.6;
-	// // if (diss[(int)idx_1]-diss[(int)idx_2] > 100) lambda = 0.6;
-	// // else lambda = 0.4;
-	// if (avg_dis(diss+175,10)>1100) lambda = 0.3333;
-	// else if (avg_dis(diss+175,10)>900) lambda = 0.4;
-	// else if (avg_dis(diss+175,10)>700) lambda = 0.5;
-	// else lambda = 0.6;
-	// // lambda = 0.5; // 先全部调成0.5 复刻第一轮
-	// double dot_ab = dis_1 * dis_2 * cos((idx_2 - idx_1) * PI / 180);
-	// double m = sqrt(pow(1-lambda,2)*pow(dis_1,2)+pow(lambda,2)*pow(dis_2,2)+2*(1-lambda)*lambda*dot_ab);
-	// double theta = acos(((1-lambda)*pow(dis_1,2)+lambda*dot_ab)/(dis_1*m))*180/PI;
-	// target_angle = idx_1 + theta;
-  // }
+
+	double lambda = 0.6;
+	// if (diss[(int)idx_1]-diss[(int)idx_2] > 100) lambda = 0.6;
+	// else lambda = 0.4;
+	if (avg_dis(diss+175,10)>1100) lambda = 0.3333;
+	else if (avg_dis(diss+175,10)>900) lambda = 0.4;
+	else if (avg_dis(diss+175,10)>700) lambda = 0.5;
+	else lambda = 0.6;
+	// lambda = 0.5; // 先全部调成0.5 复刻第一轮
+	double dot_ab = dis_1 * dis_2 * cos((idx_2 - idx_1) * PI / 180);
+	double m = sqrt(pow(1-lambda,2)*pow(dis_1,2)+pow(lambda,2)*pow(dis_2,2)+2*(1-lambda)*lambda*dot_ab);
+	double theta = acos(((1-lambda)*pow(dis_1,2)+lambda*dot_ab)/(dis_1*m))*180/PI;
+	double target_angle_ratio = idx_1 + theta;
+  double error_ratio = target_angle_ratio - 180;
+
 	/*采用垂线算法*/ 
 	//答辩
 	// double dot_ab = dis_1 * dis_2 * cos((idx_2 - idx_1) * PI / 180);
@@ -499,11 +499,34 @@ void run(double kp, double kd, int max_dis)
 	// double theta = acos((t*pow(dis_1,2)+dot_ab)/(dis_1*sqrt(pow(t*dis_1,2)+pow(dis_2,2)+2*t*dot_ab)))*180/PI;
 	// double target_angle = idx_1 + theta;
 
+    double w_mid, w_ratio;
+    
+    double error_diff = fabs(error_mid - error_ratio);
+    if (error_diff > 45) {
+        // 算法差异很大，保守策略：主要依赖中线算法
+        w_mid = 0.7;
+        w_ratio = 0.3;
+    }
+    else if (error_diff > 25) {
+        // 中等差异，均衡分配
+        w_mid = 0.5;
+        w_ratio = 0.5;
+    }
+    else {
+        // 算法一致，充分利用所有信息
+        w_mid = 0.4;
+        w_ratio = 0.6;
+    }
 
-  double error = target_angle - 180;  // 逆时针转的时候error一般小于0，顺时针大于0
-  Servo_Control(kp * error + kd * (error - error_last));
-	avoid_obstacle();
-  error_last = error;
+//-------------------- 最终误差融合--------------------------------
+    double final_error = w_mid * error_mid + w_ratio * error_ratio;
+
+
+  // double error = target_angle - 180;  // 逆时针转的时候error一般小于0，顺时针大于0
+      Servo_Control(kp * final_error + kd * (final_error - error_last));
+      avoid_obstacle();
+    error_last = final_error;
+  
 }
 
 /*---------------------------xiaohei---------------------*/
