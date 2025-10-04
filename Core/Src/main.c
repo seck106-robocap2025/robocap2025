@@ -71,6 +71,25 @@
 #define MS200_DISTANCE_REAR 35 // 激光雷达到车后的距离
 #define MS200_DISTANCE_SIDE 12 // 激光雷达到车侧的距离
 
+
+
+/* -------------- 停车判断可调宏 --------------- */
+
+// #define STOP_THR 20// 停车阈值，单位 mm
+// #define CACHE_FRM 6//取点间隔
+// #define point_number 5//取点数
+
+
+#define STOP_62 132.0f
+#define STOP_160 353.0f
+#define STOP_203 350.0f
+#define STOP_300 151.0f
+#define back_time 20   //倒车时间戳
+#define stop_woring 14.0f
+#define start_time 120 //启动的时间戳，单位为循环的次数，实际调试时候去改变
+/* -------------------------------------- */
+
+
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -487,7 +506,103 @@ void run(double kp, double kd, int max_dis)
   error_last = error;
 }
 
+/*---------------------------xiaohei---------------------*/
+/*
+*判断小车是否停止函数
+*/
+// int stop_points[point_number] = {0};   //通过时间戳，间隔取5次点
 
+// int car_stop_judgment(MS200_Point* points,int car_time,int angle){
+
+//     int floor = -1;
+//     float reduction_number = 1000.0f;
+
+//     /* 采样 */
+//     if (points[angle].distance < 200.0f && car_time > start_time && (car_time - start_time) % CACHE_FRM == 0){
+
+//         floor = ((car_time - start_time) % (CACHE_FRM * point_number)) / CACHE_FRM;  
+//         stop_points[floor] = points[angle].distance;
+
+//     }
+
+//     /* 只在收满第 point_number-1 层时做停稳判决 */
+//     if (floor == point_number - 1){
+//         for(int i = 0;i < point_number - 1;++i){
+
+//         //计算差值和
+//             reduction_number += fabs((float)(stop_points[i] - stop_points[i + 1]));
+
+//         }
+//         reduction_number /= (float)(point_number - 1);
+
+//     }
+
+//     if(reduction_number <= STOP_THR){
+//         return 1;
+//     }
+
+//     return 0;
+
+// }
+
+// #define STOP_62 142.0f
+// #define STOP_160 363.0f
+// #define STOP_203 360.0f
+// #define STOP_300 161.0f
+
+int car_stop_judgment(MS200_Point* points,int car_time){
+
+    if(car_time < start_time) 
+        return 3;
+    if(points[62].distance < (STOP_62 + stop_woring))
+        return 1;
+    if(points[160].distance < (STOP_160 + stop_woring))
+        return 2;
+    if(points[203].distance < (STOP_203 + stop_woring))
+        return -2;
+    if(points[300].distance < (STOP_300 + stop_woring))
+        return -1;
+    
+    return 0;
+
+}
+
+
+/*
+* 判断倒车何时进行
+*/
+void run2(int stop,int car_time,int *back_run_time){
+
+    
+    if(stop == 0 || stop == 2 || stop == -2 ){
+        run(Kp, Kd, 750);
+    }
+    
+    if(stop == 1 && car_time > *back_run_time)
+        *back_run_time = car_time + back_time;
+
+    if(stop == -1 && car_time > *back_run_time)
+        *back_run_time = car_time + back_time;
+
+    if(car_time < *back_run_time){
+        Speed_Control(-100);
+
+        //右前轮撞墙
+        if(stop == 1){
+            Servo_Control(30);
+        }
+
+        //左前轮撞墙
+        if(stop == -1){
+            Servo_Control(-30);
+        }
+    }
+    
+}
+
+
+
+/*--------------------------xiahei-----------------------*/
 /*
  * 主函数
  * 程序入口，负责初始化硬件、主循环逻辑等
@@ -532,7 +647,7 @@ int main(void){
 
 	SG90_SetAngle(0);
 	
-
+    int car_time = 0;
 	while(1){
     OLED_Clear();
     points = MS200_GetPointsData();
@@ -589,15 +704,20 @@ int main(void){
   // memcpy(diss, corrected_diss, sizeof(diss));
       
 			
-	OLED_ShowFloat(0,0,curvatureLeft);
-	OLED_ShowFloat(60,0,curvatureRight);
-	OLED_ShowFloat(0,32,points[0].distance / 10);
-	OLED_ShowFloat(60,32,points[90].distance / 10);
-	OLED_ShowFloat(0,48, points[180].distance / 10);
-	OLED_ShowFloat(60,48,points[270].distance / 10);
+	car_time++;
+    int stop = car_stop_judgment(points,car_time);//停车判断，1停车
+    int back_run_time = 0;
+
+    OLED_Clear();		
+	OLED_ShowFloat(0,0,(double)back_run_time);
+	OLED_ShowFloat(60,0,points[62].distance);
+	OLED_ShowFloat(0,32,0.0f);
+	OLED_ShowFloat(60,32,points[300].distance);
+	OLED_ShowFloat(0,48, (double)stop);
+	OLED_ShowFloat(60,48,(double)car_time);
 	OLED_Display();
 
-	run(Kp, Kd, 750);
+    run2(stop,car_time,&back_run_time);
 			/* USER CODE END WHILE */
 			
 			/* USER CODE BEGIN 3 */
