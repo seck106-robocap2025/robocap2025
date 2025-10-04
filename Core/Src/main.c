@@ -22,6 +22,9 @@
 #include "usart.h"
 #include "gpio.h"
 #include "math.h"
+
+ 
+ 
 #include "tern.h"
 #include "linearRegression.h"
 /* Private includes ----------------------------------------------------------*/
@@ -89,7 +92,63 @@ void SystemClock_Config(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+// 定义处理雷达返回数据点的数量
+#define SIZE 9 
+// 定义一个结构体来存储数据点的坐标
+/*
+ * DataPoint结构体
+ * 用于存储激光雷达返回的点的坐标（x, y）
+ */
+typedef struct {
+    double xDistance; // x方向距离
+    double yDistance; // y方向距离
+} DataPoint;
+//定义一个DataPoint数组来存雷达返回数据点据点的坐标
 
+/*
+ * LidarRightpoints/LidarLeftpoints
+ * 存储右侧/左侧激光雷达点的坐标
+ */
+DataPoint LidarRightpoints[SIZE + 1];
+DataPoint LidarLeftpoints[SIZE + 1];
+DataPoint Last_LidarRightpoints[SIZE + 1];
+DataPoint Last_LidarLeftpoints[SIZE + 1];
+MS200_Point* points;
+// 定义线性回归的参数（斜率a和截距b）
+/*
+ * 线性回归参数
+ * a为斜率，b为截距
+ */
+ double Right_a=0.0f; 
+ double Right_b=0.0f;
+
+ double Left_a=0.0f; 
+ double Left_b=0.0f;
+ /*
+ * 不同场景下的转角PID参数
+ * angle_pid_1: 直道
+ * angle_pid_2: 普通弯道
+ * angle_pid_3: 急弯
+ */
+static float angle_pid_1[3] = { 0.2 , 0.1};
+static float angle_pid_2[3] = { 0.4 , 0.2};
+static float angle_pid_3[3] = { 0.6 , 0.2};
+// 定义存储从20degree开始逐次增加5，至60degree的正余弦值
+/*
+ * 预先计算好的正弦和余弦值数组
+ * 用于将极坐标转换为直角坐标
+ */
+static double sin_values[9] = {  
+    0.3420201433, 0.4226182617, 0.5000000000,  
+    0.5735764364, 0.6427876097, 0.7071067812, 
+    0.7660444431, 0.8191520443, 0.8660254038
+};
+static double cos_values[9] = {  
+    0.9396926208, 0.9063077870, 0.8660254038,  
+    0.8191520443, 0.7660444431, 0.7071067812,
+    0.6427876097, 0.5735764364, 0.5000000000
+};
+static float Kp, Kd;
 /*
  * UART接收完成回调函数
  * 主要用于处理激光雷达数据
@@ -130,90 +189,63 @@ void judge_data_abondan(int i , MS200_Point* points , float *currentData , float
     }
 }
 
-//------------------------------------------------------------------kxy---------------------------------------------------------------------
-//-----DataPoint机构体，与曲率判断对应-----
-//-----存储雷达返回的数据点的坐标----
-//定义处理雷达返回数据点的数量
+#define WINDOW_SIZE 7       // 窗口大小（建议奇数，对称窗口）
+#define MAX_JUMP_DISTANCE 0.5f  // 使用float常量（f后缀）
+//可以进一步优化，使用其他更为优化的算法
+void robustSlidingWindowFilter(DataPoint* points, int size) {
+    int i, j;
+    for (i = WINDOW_SIZE/2; i < size-WINDOW_SIZE/2; i++) {
+        float sum_x = 0.0f, sum_y = 0.0f;  // 改用float节省资源
+        int valid_count = 0;
+
+        // 检查窗口内每个点是否合理
+        for (j = -WINDOW_SIZE/2; j <= WINDOW_SIZE/2; j++) {
+            float dist_prev = hypotf(points[i+j-1].xDistance, points[i+j-1].yDistance); // 使用float版本
+            float dist_curr = hypotf(points[i+j].xDistance, points[i+j].yDistance);
+
+            // 跳变检测
+            if (fabsf(dist_curr - dist_prev) < MAX_JUMP_DISTANCE) { // 使用float版本
+                sum_x += points[i+j].xDistance;
+                sum_y += points[i+j].yDistance;
+                valid_count++;
+            }
+        }
+
+        // 有效点足够时更新（至少需要窗口一半的有效点）
+        if (valid_count > WINDOW_SIZE/2) {  // > 而非 >=，更严格
+            points[i].xDistance = sum_x / valid_count;
+            points[i].yDistance = sum_y / valid_count;
+        }
+    }
+}
 
 /*
-右侧雷达扫描区域：20°, 25°, 30°, 35°, 40°, 45°, 50°, 55°, 60°
-左侧雷达扫描区域：340°, 335°, 330°, 325°, 320°, 315°, 310°, 305°, 300°
-*/
-
-/*
- * 预先计算好的正弦和余弦值数组
- * 用于将极坐标转换为直角坐标
+ * 曲率计算函数
+ * 用于判断赛道的弯曲程度
+ * points: 点数组
+ * size: 点的数量
+ * a, b: 拟合直线的参数
+ * 返回值: 曲率
  */
-static double sin_values[9] = {  
-    0.3420201433, 0.4226182617, 0.5000000000,  
-    0.5735764364, 0.6427876097, 0.7071067812, 
-    0.7660444431, 0.8191520443, 0.8660254038
-};
-static double cos_values[9] = {  
-    0.9396926208, 0.9063077870, 0.8660254038,  
-    0.8191520443, 0.7660444431, 0.7071067812,
-    0.6427876097, 0.5735764364, 0.5000000000
-};
-
-#define SIZE 9	
-#define MOVING_AVG_SIZE 5
-typedef struct {
-    double xDistance;
-    double yDistance;
-} DataPoint;
-
-DataPoint LidarRightpoints[SIZE], LidarLeftpoints[SIZE];
-DataPoint Last_LidarRightpoints[SIZE], Last_LidarLeftpoints[SIZE];
-
-
-//----------------添加数据有效性检查函数-----------------
-// 数据有效性检查
-int isValidPoint(DataPoint p) {
-    return !(p.xDistance == 0 && p.yDistance == 0) &&
-           !isnan(p.xDistance) && !isnan(p.yDistance) &&
-           fabs(p.xDistance) < 10.0f && fabs(p.yDistance) < 10.0f;
+float calculateCurvature2D(DataPoint* points, int size, double a, double b) {
+    float curvature = 0;
+    for (int i = 0; i < size; ++i) {
+        float y_pred = a * points[i].xDistance + b;
+        curvature += pow(points[i].yDistance - y_pred, 2);
+    }
+    return curvature / size;
 }
 
-// 数据插值
-DataPoint interpolatePoint(DataPoint* points, int index, int size) {
-    DataPoint result = {0, 0};
-    int valid_neighbors = 0;
-    
-    // 向前找有效点
-    for (int i = index+1; i < size && i <= index+2; i++) {
-        if (isValidPoint(points[i])) {
-            result.xDistance += points[i].xDistance;
-            result.yDistance += points[i].yDistance;
-            valid_neighbors++;
-            break;
-        }
-    }
-    
-    // 向后找有效点
-    for (int i = index-1; i >= 0 && i >= index-2; i--) {
-        if (isValidPoint(points[i])) {
-            result.xDistance += points[i].xDistance;
-            result.yDistance += points[i].yDistance;
-            valid_neighbors++;
-            break;
-        }
-    }
-    
-    if (valid_neighbors > 0) {
-        result.xDistance /= valid_neighbors;
-        result.yDistance /= valid_neighbors;
-    }
-    
-    return result;
-}
 
-//------------------------曲线拟合---------------------------------------------
-
- double Right_a=0.0f; 
- double Right_b=0.0f;
- double Left_a=0.0f; 
- double Left_b=0.0f;
-
+/*
+ * 曲线拟合函数（最小二乘法）
+ * 对一组点进行线性拟合，得到斜率a和截距b
+ * points: 点数组
+ * size: 点的数量
+ * a: 输出斜率
+ * b: 输出截距
+ */
+//
 void curveFitting2D(DataPoint* points, int size, double* a, double* b) {
     double sum_x = 0, sum_y = 0, sum_x2 = 0, sum_xy = 0;
     for (int i = 0; i < size; ++i) {
@@ -258,204 +290,73 @@ void curveFitting2D(DataPoint* points, int size, double* a, double* b) {
     *b = (sum_y * sum_x2 - sum_x * sum_xy) / denominator;
 }
 
-
- //曲率历史数据用于移动平均
-float curvature_history_right[MOVING_AVG_SIZE] = {0};
-float curvature_history_left[MOVING_AVG_SIZE] = {0};
-int history_index = 0;
-
-float leidaqv9zhi(){
-//-----从雷达获取原始数据-----
-    MS200_Point* points = MS200_GetPointsData();
-    
-
+static float curvatureLeft;
+static float curvatureRight;
+static int speed;
+static int mode=1;
+//pid选择函数
+//根据曲率选择pid参数
+void pid_select(){
     for(int i=0;i<SIZE;i++){
-        // 右侧数据处理
-        LidarRightpoints[i].xDistance = points[20 + i * 5].distance * cos_values[i];
-        LidarRightpoints[i].yDistance = points[20 + i * 5].distance * sin_values[i];
-        
-        // ------进入无效点的修复------
-        if (!isValidPoint(LidarRightpoints[i])) {
-            if (isValidPoint(Last_LidarRightpoints[i])) {
-                LidarRightpoints[i] = Last_LidarRightpoints[i];
-            } else {
-                LidarRightpoints[i] = interpolatePoint(LidarRightpoints, i, SIZE);
-            }
-        } else {
-            Last_LidarRightpoints[i].xDistance = LidarRightpoints[i].xDistance;
-            Last_LidarRightpoints[i].yDistance = LidarRightpoints[i].yDistance;
-        }
-        
-        // 左侧数据处理
-        LidarLeftpoints[i].xDistance = points[340 - i * 5].distance * cos_values[i];
-        LidarLeftpoints[i].yDistance = points[340 - i * 5].distance * sin_values[i];
-        
-        if (!isValidPoint(LidarLeftpoints[i])) {
-            if (isValidPoint(Last_LidarLeftpoints[i])) {
-                LidarLeftpoints[i] = Last_LidarLeftpoints[i];
-            } else {
-                LidarLeftpoints[i] = interpolatePoint(LidarLeftpoints, i, SIZE);
-            }
-        } else {
-            Last_LidarLeftpoints[i].xDistance = LidarLeftpoints[i].xDistance;
-            Last_LidarLeftpoints[i].yDistance = LidarLeftpoints[i].yDistance;
-        }
-    }
-    
-    // 添加直线拟合调用
-    curveFitting2D(LidarRightpoints, SIZE, &Right_a, &Right_b);
-    curveFitting2D(LidarLeftpoints, SIZE, &Left_a, &Left_b);
+				LidarRightpoints[i].xDistance = points[20 + i * 5].distance  * cos_values[i];
+				LidarRightpoints[i].yDistance = points[20 + i * 5].distance  * sin_values[i];
+				//如果非零，记录下来
+				if(LidarRightpoints[i].xDistance != 0){
+					Last_LidarRightpoints[i].xDistance = LidarRightpoints[i].xDistance;
+					//如果为零，设为上次记录
+				}else{
+					LidarRightpoints[i].xDistance = Last_LidarRightpoints[i].xDistance;
+				}
+				
+				if(LidarRightpoints[i].yDistance != 0){
+					Last_LidarRightpoints[i].yDistance = LidarRightpoints[i].yDistance;
+				}else{
+					LidarRightpoints[i].yDistance = Last_LidarRightpoints[i].yDistance;
+				}
+				
+				LidarLeftpoints[i].xDistance = points[340 - i * 5].distance  * cos_values[i];
+				LidarLeftpoints[i].yDistance = points[340 - i * 5].distance  * sin_values[i];
+				
+				if(LidarLeftpoints[i].xDistance != 0){
+					Last_LidarLeftpoints[i].xDistance = LidarLeftpoints[i].xDistance;
+				}else{
+					LidarLeftpoints[i].xDistance = Last_LidarLeftpoints[i].xDistance;
+				}
+				
+				if(LidarLeftpoints[i].yDistance != 0){
+					Last_LidarLeftpoints[i].yDistance = LidarLeftpoints[i].yDistance;
+				}else{
+					LidarLeftpoints[i].yDistance = Last_LidarLeftpoints[i].yDistance;
+				}
+				
+			}
+			
+			// 数据预处理
+			robustSlidingWindowFilter( LidarRightpoints, SIZE);
+			robustSlidingWindowFilter( LidarLeftpoints, SIZE);
+
+			// 赛道轮廓提取
+	 
+			curveFitting2D(LidarRightpoints, SIZE, &Right_a, &Right_b);
+			curveFitting2D(LidarLeftpoints, SIZE, &Left_a, &Left_b);
+
+
+			// 赛道形状判断
+			curvatureRight = calculateCurvature2D(LidarRightpoints, SIZE, Right_a, Right_b);
+			curvatureLeft = calculateCurvature2D(LidarLeftpoints, SIZE, Left_a, Left_b);
+			//根据曲率判断pid的选择
+			if(curvatureRight > 5000.0 || curvatureLeft > 5000.0){
+				Kp = angle_pid_2[0];
+				Kd = angle_pid_2[1];
+                speed = 60;
+                mode=2;
+			}else{
+				Kp = angle_pid_1[0];
+				Kd = angle_pid_1[1];
+                speed = 70;
+                mode=1;
+			}
 }
-
-
-/*
----------------根据不同情况选择pid\speed---------------
-angle_pid_1  直道
-angle_pid_2  90度
-angle_pid_3  180度
-angle_pid_4  270度
-*/
-static pid_handle angle_pid;
-static float angle_pid_1[3] = { 1.5 , 0.1 , 0.20};
-static float angle_pid_2[3] = { 2 , 0.15 , 0.10};
-static float angle_pid_3[3] = { 2.5 , 0.15 , 0.30};
-static float angle_pid_4[3] = { 2 , 0.05 , 0.20 };
-float speed=0;
-//-------------------跑道曲率的判断----------
-
-// 三点基础曲率计算
-float calculateBasicCurvature(DataPoint p1, DataPoint p2, DataPoint p3) {
-    float area = fabs((p2.xDistance-p1.xDistance)*(p3.yDistance-p1.yDistance) - 
-                     (p3.xDistance-p1.xDistance)*(p2.yDistance-p1.yDistance)) / 2.0f;
-    
-    float a = sqrtf((p2.xDistance-p1.xDistance)*(p2.xDistance-p1.xDistance) + (p2.yDistance-p1.yDistance)*(p2.yDistance-p1.yDistance));
-    float b = sqrtf((p3.xDistance-p2.xDistance)*(p3.xDistance-p2.xDistance) + (p3.yDistance-p2.yDistance)*(p3.yDistance-p2.yDistance));
-    float c = sqrtf((p3.xDistance-p1.xDistance)*(p3.xDistance-p1.xDistance) + (p3.yDistance-p1.yDistance)*(p3.yDistance-p1.yDistance));
-    
-    if (a*b*c < 1e-6) return 0.0f;
-    return 4.0f * area / (a * b * c);
-}
-
-// 角度变化曲率
-float calculateAngleCurvature(DataPoint* points, int size) {
-    if (size < 3) return 0.0f;
-    
-    float total_angle = 0;
-    int count = 0;
-    
-    for (int i = 1; i < size - 1; i++) {
-        DataPoint prev = points[i-1];
-        DataPoint curr = points[i];
-        DataPoint next = points[i+1];
-        
-        float dx1 = curr.xDistance - prev.xDistance;
-        float dy1 = curr.yDistance - prev.yDistance;
-        float dx2 = next.xDistance - curr.xDistance;
-        float dy2 = next.yDistance - curr.yDistance;
-        
-        float dot = dx1*dx2 + dy1*dy2;
-        float cross = dx1*dy2 - dy1*dx2;
-        float angle = atan2f(fabs(cross), (dot > 0.1f ? dot : 0.1f));
-        
-        if (angle < 1.0f) {
-            total_angle += angle;
-            count++;
-        }
-    }
-    
-    return (count > 0) ? total_angle / count : 0.0f;
-}
-
-// 最优曲率计算（多方法融合）
-float calculateOptimalCurvature(DataPoint* points, int size) {
-    if (size < 5) return 0.0f;
-    
-    // 方法1: 多点平均曲率
-    float multi_point_curvature = 0;
-    int multi_count = 0;
-    for (int i = 0; i <= size-3; i++) {
-        float curvature = calculateBasicCurvature(points[i], points[i+1], points[i+2]);
-        if (curvature < 2.0f) {
-            multi_point_curvature += curvature;
-            multi_count++;
-        }
-    }
-    if (multi_count > 0) multi_point_curvature /= multi_count;
-    
-    // 方法2: 角度曲率
-    float angle_curvature = calculateAngleCurvature(points, size);
-    
-    // 加权融合
-    return 0.6f * multi_point_curvature + 0.4f * angle_curvature;
-}
-
-// 移动平均滤波
-float movingAverage(float new_value, float* history, int* index) {
-    history[*index] = new_value;
-    *index = (*index + 1) % MOVING_AVG_SIZE;
-    
-    float sum = 0;
-    for (int i = 0; i < MOVING_AVG_SIZE; i++) {
-        sum += history[i];
-    }
-    return sum / MOVING_AVG_SIZE;
-}
-
-
-
-
-float qvlvpanduan() {
-    // 使用新的最优曲率计算方法
-    float current_right = calculateOptimalCurvature(LidarRightpoints, SIZE);
-    float current_left = calculateOptimalCurvature(LidarLeftpoints, SIZE);
-    
-    // 移动平均滤波
-    float smoothed_right = movingAverage(current_right, curvature_history_right, &history_index);
-    float smoothed_left = movingAverage(current_left, curvature_history_left, &history_index);
-    
-    // 计算曲率差
-    float curvature_difference = fabs(smoothed_right - smoothed_left);
-    
-    // 自适应阈值
-    static float historical_mean = 0.1f;
-    historical_mean = 0.95f * historical_mean + 0.05f * curvature_difference;
-    
-    // 基于统计的智能决策
-    if (curvature_difference < 0.1f) {
-        // 直道
-        speed = 80;
-        angle_pid.Kp = angle_pid_1[0];
-        angle_pid.Ki = angle_pid_1[1];
-        angle_pid.Kd = angle_pid_1[2];
-    } 
-    else if (curvature_difference < 0.3f) {
-        // 缓弯
-        speed = 60;
-        angle_pid.Kp = angle_pid_2[0];
-        angle_pid.Ki = angle_pid_2[1];
-        angle_pid.Kd = angle_pid_2[2];
-    }
-    else if (curvature_difference < 0.8f) {
-        // 中弯
-        speed = 50;
-        angle_pid.Kp = angle_pid_3[0];
-        angle_pid.Ki = angle_pid_3[1];
-        angle_pid.Kd = angle_pid_3[2];
-    }
-    else {
-        // 急弯
-        speed = 40;
-        angle_pid.Kp = angle_pid_4[0];
-        angle_pid.Ki = angle_pid_4[1];
-        angle_pid.Kd = angle_pid_4[2];
-    }
-    
-    return curvature_difference;
-}
-//-------------------------------------------------------------------kxy-------------------------------------------------------------------
-
-
-
 
 
 int diss[360];
@@ -491,8 +392,8 @@ int avg_dis(int dis[], int n){
 void avoid_obstacle(){
 	// 避免左右有障碍物的时候还往障碍物上撞
 	int dis_min = 250; //临界距离，可以调整
-	int dis_l = avg_dis(diss+120, 20);
-	int dis_r = avg_dis(diss+242, 20);
+	int dis_l = avg_dis(diss+110, 20);
+	int dis_r = avg_dis(diss+232, 20);
 	if (dis_l < dis_min && angle_0<0) Servo_Control(0);
 	if (dis_r < dis_min && angle_0>0) Servo_Control(0);
 }
@@ -500,77 +401,85 @@ void avoid_obstacle(){
 void run(double kp, double kd, int max_dis)
 {
 	// lyh的idea 目前的最优算法 update at 2023.10.12
-	int dis_min_front = 9999; // 记录前方张角30度内的最短距离
-	// 计算前方张角30度内的最短距离
-	// for (int i=150; i<=210; ++i){
-	// 	if (diss[i]!=0 && diss[i]<dis_min_front) dis_min_front = diss[i];
-	// }
-	dis_min_front = avg_dis(diss+170,21);
-	// 如果前方有障碍物，那么小车减速
-	if (dis_min_front < 800 && dis_min_front >= 500) Speed_Control(60);
-	else if (dis_min_front < 500) Speed_Control(50);
-	else Speed_Control(70);
-
+	// int dis_min_front = 9999; // 记录前方张角30度内的最短距离
+	// // 计算前方张角30度内的最短距离
+	// // for (int i=150; i<=210; ++i){
+	// // 	if (diss[i]!=0 && diss[i]<dis_min_front) dis_min_front = diss[i];
+	// // }
+	// dis_min_front = avg_dis(diss+170,21);
+	// // 如果前方有障碍物，那么小车减速
+	// if (dis_min_front < 800 && dis_min_front >= 500) Speed_Control(60);
+	// else if (dis_min_front < 500) Speed_Control(59);
+	// else Speed_Control(70);
+    Speed_Control(speed);
 	// 计算前方赛道中心点的方位，使用pid逼近那个点
-   int count = 0;
-   int index1 = 0, dis1 = 0; // 临时变量
-   int index2 = 0, dis2 = 0;
+    int count = 0;
+    int index1 = 0, dis1 = 0; // 临时变量
+    int index2 = 0, dis2 = 0;
 	double idx_1 = 0, idx_2 = 0; // 记录的最远的两个点的索引
 	double dis_1 = 0, dis_2 = 0;
 
     // int idx_max = 0;
     double d_max = 0;
 
-  for (int i = 90; i < 270; i++)
-  {
-    int dis = diss[i];
-    if (dis > 0 && dis < max_dis)
+    for (int i = 90; i < 270; i++)
     {
-        count++;
-        index1 = index2;
-        dis1 = dis2;
-        index2 = i;
-			  dis2 = dis;
+        int dis = diss[i];
+        if (dis > 0 && dis < max_dis)
+        {
+            count++;
+            index1 = index2;
+            dis1 = dis2;
+            index2 = i;
+            dis2 = dis;
 
-        if (count > 1)
-        {
-				// 此处的距离计算函数错误，但效果很好（？）
-          double d = (double)(index2-index1) * (double)(dis1+dis2) / 2.0 + (double)((dis2-dis1)>0?(dis2-dis1):(dis1-dis2));
-                // 纠正回来了，但是效果一坨，不如上面的
-				// double d = (double)(index2-index1)* PI / 180 * (double)(dis1+dis2) / 2.0 + (double)((dis2-dis1)>0?(dis2-dis1):(dis1-dis2));
-        if (d > d_max)
-        {
-					idx_1 = index1;
-					idx_2 = index2;
-					dis_1 = dis1;
-					dis_2 = dis2;
-                    d_max = d;
+            if (count > 1)
+            {
+                    // 此处的距离计算函数错误，但效果很好（？）
+            double d = (double)(index2-index1) * (double)(dis1+dis2) / 2.0 + (double)((dis2-dis1)>0?(dis2-dis1):(dis1-dis2));
+                    // 纠正回来了，但是效果一坨，不如上面的
+                    // double d = (double)(index2-index1)* PI / 180 * (double)(dis1+dis2) / 2.0 + (double)((dis2-dis1)>0?(dis2-dis1):(dis1-dis2));
+            if (d > d_max)
+            {
+                        idx_1 = index1;
+                        idx_2 = index2;
+                        dis_1 = dis1;
+                        dis_2 = dis2;
+                        d_max = d;
+                    }
                 }
-            }
         }
     }
+    double target_angle;
 	/*采用中线算法*/
-	 
-	 double oppsite_side = sqrt(pow(dis_1, 2) + pow(dis_2, 2) - 2 * dis_1 * dis_2 * cos((idx_2 - idx_1) * PI / 180));
-	 double mid_line = sqrt((pow(dis_1, 2)+pow(dis_2, 2))/2-pow(oppsite_side, 2)/4);
-	 double offset_angle = acos((pow(dis_1, 2)+pow(mid_line, 2)-pow(oppsite_side/2, 2))/(2*dis_1*mid_line));
-	 double target_angle = idx_1 + offset_angle * 180 / PI;
-	 qvlvpanduan();
-	 
-	
-//	/*采用比例算法*/
-//	double lambda = 0.6;
-//	// if (diss[(int)idx_1]-diss[(int)idx_2] > 100) lambda = 0.6;
-//	// else lambda = 0.4;
-//	if (avg_dis(diss+175,10)>1100) lambda = 0.3333;
-//	else if (avg_dis(diss+175,10)>900) lambda = 0.4;
-//	else if (avg_dis(diss+175,10)>700) lambda = 0.5;
-//	else lambda = 0.6;
-//	// lambda = 0.5; // 先全部调成0.5 复刻第一轮
-//	double dot_ab = dis_1 * dis_2 * cos((idx_2 - idx_1) * PI / 180);
-//	double m = sqrt(pow(1-lambda,2)*pow(dis_1,2)+pow(lambda,2)*pow(dis_2,2)+2*(1-lambda)*lambda*dot_ab);
-//	double theta = acos(((1-lambda)*pow(dis_1,2)+lambda*dot_ab)/(dis_1*m))*180/PI;
-//	double target_angle = idx_1 + theta;
+    // if(mode ==2){
+	double oppsite_side = sqrt(pow(dis_1, 2) + pow(dis_2, 2) - 2 * dis_1 * dis_2 * cos((idx_2 - idx_1) * PI / 180));
+	double mid_line = sqrt((pow(dis_1, 2)+pow(dis_2, 2))/2-pow(oppsite_side, 2)/4);
+	double offset_angle = acos((pow(dis_1, 2)+pow(mid_line, 2)-pow(oppsite_side/2, 2))/(2*dis_1*mid_line));
+	target_angle = idx_1 + offset_angle * 180 / PI;
+  //   }
+	// /*采用比例算法*/
+  // if(mode == 1){
+	// double lambda = 0.6;
+	// // if (diss[(int)idx_1]-diss[(int)idx_2] > 100) lambda = 0.6;
+	// // else lambda = 0.4;
+	// if (avg_dis(diss+175,10)>1100) lambda = 0.3333;
+	// else if (avg_dis(diss+175,10)>900) lambda = 0.4;
+	// else if (avg_dis(diss+175,10)>700) lambda = 0.5;
+	// else lambda = 0.6;
+	// // lambda = 0.5; // 先全部调成0.5 复刻第一轮
+	// double dot_ab = dis_1 * dis_2 * cos((idx_2 - idx_1) * PI / 180);
+	// double m = sqrt(pow(1-lambda,2)*pow(dis_1,2)+pow(lambda,2)*pow(dis_2,2)+2*(1-lambda)*lambda*dot_ab);
+	// double theta = acos(((1-lambda)*pow(dis_1,2)+lambda*dot_ab)/(dis_1*m))*180/PI;
+	// target_angle = idx_1 + theta;
+  // }
+	/*采用垂线算法*/ 
+	//答辩
+	// double dot_ab = dis_1 * dis_2 * cos((idx_2 - idx_1) * PI / 180);
+	// double t = (pow(dis_2,2)-dot_ab)/(pow(dis_1,2)-2*dot_ab);
+	// double theta = acos((t*pow(dis_1,2)+dot_ab)/(dis_1*sqrt(pow(t*dis_1,2)+pow(dis_2,2)+2*t*dot_ab)))*180/PI;
+	// double target_angle = idx_1 + theta;
+
 
   double error = target_angle - 180;  // 逆时针转的时候error一般小于0，顺时针大于0
   Servo_Control(kp * error + kd * (error - error_last));
@@ -626,8 +535,8 @@ int main(void){
 
 	while(1){
     OLED_Clear();
-    MS200_Point* points = MS200_GetPointsData();
-			
+    points = MS200_GetPointsData();
+	pid_select();
     static int remapped_diss[360]; 
 
     // 在一个循环内，直接从 points 读取，并存放到旋转后的正确位置
@@ -680,26 +589,21 @@ int main(void){
   // memcpy(diss, corrected_diss, sizeof(diss));
       
 			
-	OLED_ShowFloat(0,0,angle_0);
-	OLED_ShowFloat(60,0,diss[180]/10);
+	OLED_ShowFloat(0,0,curvatureLeft);
+	OLED_ShowFloat(60,0,curvatureRight);
 	OLED_ShowFloat(0,32,points[0].distance / 10);
 	OLED_ShowFloat(60,32,points[90].distance / 10);
 	OLED_ShowFloat(0,48, points[180].distance / 10);
 	OLED_ShowFloat(60,48,points[270].distance / 10);
 	OLED_Display();
 
-	run(0.6, 0.0, 750);
+	run(Kp, Kd, 750);
 			/* USER CODE END WHILE */
 			
 			/* USER CODE BEGIN 3 */
 	}
   /* USER CODE END 3 */
 }
-
-
-
-
-//----------------------------------------------------------------------------------------------------------------------------------------
 /**
   * @brief System Clock Configuration
   * @retval None
