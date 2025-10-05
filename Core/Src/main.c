@@ -89,7 +89,7 @@
 #define start_time 120 //启动的时间戳，单位为循环的次数，实际调试时候去改变
 #define left_woring 13.0f //左侧告警距离
 #define right_woring 13.0f //右侧告警距离
-#define car_back_number 10.0f //倒车系数
+#define car_back_number 15.0f //倒车系数
 
 /* -------------------------------------- */
 
