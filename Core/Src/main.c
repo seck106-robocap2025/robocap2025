@@ -89,6 +89,8 @@
 #define start_time 120 //启动的时间戳，单位为循环的次数，实际调试时候去改变
 #define left_woring 13.0f //左侧告警距离
 #define right_woring 13.0f //右侧告警距离
+#define car_back_number 10.0f //倒车系数
+
 /* -------------------------------------- */
 
 
@@ -620,9 +622,9 @@ int car_stop_judgment_back(MS200_Point* points,int car_time){
     if(points[160].distance < 30.0f || points[203].distance < 30.0f)
         return 0;
 
-    if(points[160].distance < (STOP_160 + 5 * stop_woring))
+    if(points[160].distance < (STOP_160 + car_back_number * stop_woring))
         return -2;
-    if(points[203].distance < (STOP_203 + 5 * stop_woring))
+    if(points[203].distance < (STOP_203 + car_back_number * stop_woring))
         return -1;
 }
 /*
