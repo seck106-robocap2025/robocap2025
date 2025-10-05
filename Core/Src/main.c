@@ -87,6 +87,8 @@
 #define back_time 20   //倒车时间戳
 #define stop_woring 14.0f
 #define start_time 120 //启动的时间戳，单位为循环的次数，实际调试时候去改变
+#define left_woring 13.0f //左侧告警距离
+#define right_woring 13.0f //右侧告警距离
 /* -------------------------------------- */
 
 
@@ -111,9 +113,9 @@ void SystemClock_Config(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-// 定义处理雷达返回数据点的数量
+ //定义处理雷达返回数据点的数量
 #define SIZE 9 
-// 定义一个结构体来存储数据点的坐标
+ //定义一个结构体来存储数据点的坐标
 /*
  * DataPoint结构体
  * 用于存储激光雷达返回的点的坐标（x, y）
@@ -133,7 +135,7 @@ DataPoint LidarLeftpoints[SIZE + 1];
 DataPoint Last_LidarRightpoints[SIZE + 1];
 DataPoint Last_LidarLeftpoints[SIZE + 1];
 MS200_Point* points;
-// 定义线性回归的参数（斜率a和截距b）
+ //定义线性回归的参数（斜率a和截距b）
 /*
  * 线性回归参数
  * a为斜率，b为截距
@@ -152,7 +154,7 @@ MS200_Point* points;
 static float angle_pid_1[3] = { 0.2 , 0.1};
 static float angle_pid_2[3] = { 0.4 , 0.2};
 static float angle_pid_3[3] = { 0.6 , 0.2};
-// 定义存储从20degree开始逐次增加5，至60degree的正余弦值
+ //定义存储从20degree开始逐次增加5，至60degree的正余弦值
 /*
  * 预先计算好的正弦和余弦值数组
  * 用于将极坐标转换为直角坐标
@@ -264,7 +266,7 @@ float calculateCurvature2D(DataPoint* points, int size, double a, double b) {
  * a: 输出斜率
  * b: 输出截距
  */
-//
+
 void curveFitting2D(DataPoint* points, int size, double* a, double* b) {
     double sum_x = 0, sum_y = 0, sum_x2 = 0, sum_xy = 0;
     for (int i = 0; i < size; ++i) {
@@ -420,17 +422,19 @@ void avoid_obstacle(){
 void run(double kp, double kd, int max_dis)
 {
 	// lyh的idea 目前的最优算法 update at 2023.10.12
-	// int dis_min_front = 9999; // 记录前方张角30度内的最短距离
+	 int dis_min_front = 9999; // 记录前方张角30度内的最短距离
 	// // 计算前方张角30度内的最短距离
 	// // for (int i=150; i<=210; ++i){
 	// // 	if (diss[i]!=0 && diss[i]<dis_min_front) dis_min_front = diss[i];
 	// // }
-	// dis_min_front = avg_dis(diss+170,21);
-	// // 如果前方有障碍物，那么小车减速
-	// if (dis_min_front < 800 && dis_min_front >= 500) Speed_Control(60);
-	// else if (dis_min_front < 500) Speed_Control(59);
-	// else Speed_Control(70);
+	dis_min_front = avg_dis(diss+170,21);
+	 // 如果前方有障碍物，那么小车减速
+	 if (dis_min_front < 800 && dis_min_front >= 500) Speed_Control(60);
+	 else if (dis_min_front < 500) Speed_Control(59);
+	 else Speed_Control(70);
     Speed_Control(speed);
+	
+	
 	// 计算前方赛道中心点的方位，使用pid逼近那个点
     int count = 0;
     int index1 = 0, dis1 = 0; // 临时变量
@@ -513,7 +517,7 @@ void run(double kp, double kd, int max_dis)
         w_ratio = 0.5;
     }
     else {
-        // 算法一致，充分利用所有信息
+        // 算法一致，充分利用所2有信息
         w_mid = 0.4;
         w_ratio = 0.6;
     }
@@ -529,103 +533,144 @@ void run(double kp, double kd, int max_dis)
   
 }
 
-/*---------------------------xiaohei---------------------*/
+/*---------------------------xiahei的荣誉地带-----------------------------*/
+int back_run_time = 0;
 /*
 *判断小车是否停止函数
 */
-// int stop_points[point_number] = {0};   //通过时间戳，间隔取5次点
 
-// int car_stop_judgment(MS200_Point* points,int car_time,int angle){
+/*
+ *后车轮判断
+ *小车前进时对前方安全距离的判断
+ *如果安全距离小于设置的阈值（stop_woring），则返回小于安全距离的位置
+ *返回值：
+ *左为1，右为2
+ *负（车轮侧边距离足够，可倒车）
+ *正（车轮侧边距离不够，不可倒车）
+ * 0:无障碍物
+ * 3:雷达未启动
+ */
+ int car_stop_judgment_front(MS200_Point* points,int car_time){
 
-//     int floor = -1;
-//     float reduction_number = 1000.0f;
+    float right_distance = 0;
+    float left_distance = 0;
+    int re_num = 0; //碰撞位置返回判断
 
-//     /* 采样 */
-//     if (points[angle].distance < 200.0f && car_time > start_time && (car_time - start_time) % CACHE_FRM == 0){
-
-//         floor = ((car_time - start_time) % (CACHE_FRM * point_number)) / CACHE_FRM;  
-//         stop_points[floor] = points[angle].distance;
-
-//     }
-
-//     /* 只在收满第 point_number-1 层时做停稳判决 */
-//     if (floor == point_number - 1){
-//         for(int i = 0;i < point_number - 1;++i){
-
-//         //计算差值和
-//             reduction_number += fabs((float)(stop_points[i] - stop_points[i + 1]));
-
-//         }
-//         reduction_number /= (float)(point_number - 1);
-
-//     }
-
-//     if(reduction_number <= STOP_THR){
-//         return 1;
-//     }
-
-//     return 0;
-
-// }
-
-// #define STOP_62 142.0f
-// #define STOP_160 363.0f
-// #define STOP_203 360.0f
-// #define STOP_300 161.0f
-
-int car_stop_judgment(MS200_Point* points,int car_time){
-
-    if(car_time < start_time) 
+    if(car_time < start_time){
         return 3;
-    if(points[62].distance < (STOP_62 + stop_woring))
-        return 1;
-    if(points[160].distance < (STOP_160 + stop_woring))
-        return 2;
-    if(points[203].distance < (STOP_203 + stop_woring))
-        return -2;
-    if(points[300].distance < (STOP_300 + stop_woring))
-        return -1;
+    }
+
+    //倒车时不对车前侧判断
+    if(car_time < back_run_time)
+        return 100;
     
-    return 0;
+    //左右轮数据去零
+    if(points[90].distance < 30.0f){
+        right_distance = 1000.0f;
+    }else{
+        right_distance = points[90].distance;   //向右测距
+    }
+    if(points[270].distance < 30.0f){
+        left_distance = 1000.0f;
+    }else{
+        left_distance = points[270].distance;   //向左测距
+    }
+
+    if(points[62].distance < 30.0f || points[300].distance < 30.0f){
+        return 0;
+    }
+
+   //车辆启动判断
+    if(car_time < start_time) 
+        re_num = 3;
+
+    //右前车轮判断
+    if(points[62].distance < (STOP_62 + stop_woring)){
+        re_num = 2;
+    }
+        
+
+    //左前轮判断
+    if(points[300].distance < (STOP_300 + stop_woring)){
+        re_num = 1;
+    }
+
+    //左右侧距离判断，判断是否能够倒车
+    if(right_distance > right_woring || left_distance > left_woring){
+        re_num = -re_num;
+    }
+       
+    return re_num;
 
 }
 
 
 /*
-* 判断倒车何时进行
-*/
-void run2(int stop,int car_time,int *back_run_time){
+ *后车轮判断
+ *小车倒车时对后方安全距离的判断
+ *如果安全距离小于设置的阈值（stop_woring），则返回小于安全距离的位置
+ *左为1，右为2
+ *负（车轮侧边距离足够，可倒车）
+ *正（车轮侧边距离不够，不可倒车）
+ */
+int car_stop_judgment_back(MS200_Point* points,int car_time){
 
-    
-    if(stop == 0 || stop == 2 || stop == -2 ){
+    int re_num = 0;  //碰撞位置返回判断
+
+    if(points[160].distance < 30.0f || points[203].distance < 30.0f)
+        return 0;
+
+    if(points[160].distance < (STOP_160 + 5 * stop_woring))
+        return -2;
+    if(points[203].distance < (STOP_203 + 5 * stop_woring))
+        return -1;
+}
+/*
+ * 倒车进行
+ */
+void run2(int stop_front,int stop_back,int car_time){
+
+    if(stop_front == 0 ){
         run(Kp, Kd, 750);
     }
     
-    if(stop == 1 && car_time > *back_run_time)
-        *back_run_time = car_time + back_time;
+    if(stop_front == -1 && car_time > back_run_time)
+        back_run_time = car_time + back_time;
 
-    if(stop == -1 && car_time > *back_run_time)
-        *back_run_time = car_time + back_time;
+    if(stop_front == -2 && car_time >back_run_time)
+        back_run_time = car_time + back_time;
+        
+    // if(stop_front == 2 && car_time > *back_run_time)
+    //     *back_run_time = car_time + back_time;
 
-    if(car_time < *back_run_time){
+    // if(stop_front == -2 && car_time > *back_run_time)
+    //     *back_run_time = car_time + back_time;
+
+    if(car_time < back_run_time){
         Speed_Control(-100);
 
-        //右前轮撞墙
-        if(stop == 1){
-            Servo_Control(30);
+        //左前轮撞墙
+        if(stop_front == -1){
+            Servo_Control(-30);
+            if(stop_back == -1){
+                Speed_Control(100);
+                Servo_Control(30);
+            }
+
         }
 
-        //左前轮撞墙
-        if(stop == -1){
-            Servo_Control(-30);
+        //右前轮撞墙
+        if(stop_front == -2){
+            Servo_Control(30);
+            if(stop_back == -2){
+                Speed_Control(100);
+                Servo_Control(-30);
+            }
         }
     }
     
 }
-
-
-
-/*--------------------------xiahei-----------------------*/
+/*--------------------------xiahei的荣誉地带------------------------------*/
 /*
  * 主函数
  * 程序入口，负责初始化硬件、主循环逻辑等
@@ -727,20 +772,26 @@ int main(void){
   // memcpy(diss, corrected_diss, sizeof(diss));
       
 			
-	car_time++;
-    int stop = car_stop_judgment(points,car_time);//停车判断，1停车
-    int back_run_time = 0;
+//	car_time++;
+//    int stop = car_stop_judgment(points,car_time);//停车判断，1停车
+//    int back_run_time = 0;
+    car_time++;
+    int stop_front = car_stop_judgment_front(points,car_time);//停车判断，1停车
+    int stop_back = car_stop_judgment_back(points,car_time);
+
 
     OLED_Clear();		
 	OLED_ShowFloat(0,0,(double)back_run_time);
 	OLED_ShowFloat(60,0,points[62].distance);
 	OLED_ShowFloat(0,32,0.0f);
 	OLED_ShowFloat(60,32,points[300].distance);
-	OLED_ShowFloat(0,48, (double)stop);
+	OLED_ShowFloat(0,48, (double)stop_front);
 	OLED_ShowFloat(60,48,(double)car_time);
 	OLED_Display();
 
-    run2(stop,car_time,&back_run_time);
+    run2(stop_front,stop_back,car_time);
+
+    //run2(stop,car_time,&back_run_time);
 			/* USER CODE END WHILE */
 			
 			/* USER CODE BEGIN 3 */
