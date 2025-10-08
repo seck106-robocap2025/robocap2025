@@ -84,13 +84,11 @@
 #define STOP_160 353.0f
 #define STOP_203 350.0f
 #define STOP_300 151.0f
-#define back_time 20   //倒车时间戳
-#define stop_woring 14.0f
+#define back_time 12   //倒车时间戳
+#define stop_woring 16.0f
 #define start_time 120 //启动的时间戳，单位为循环的次数，实际调试时候去改变
 #define left_woring 13.0f //左侧告警距离
 #define right_woring 13.0f //右侧告警距离
-#define car_back_number 15.0f //倒车系数
-
 /* -------------------------------------- */
 
 
@@ -153,9 +151,8 @@ MS200_Point* points;
  * angle_pid_2: 普通弯道
  * angle_pid_3: 急弯
  */
-static float angle_pid_1[3] = { 0.2 , 0.1};
-static float angle_pid_2[3] = { 0.4 , 0.2};
-static float angle_pid_3[3] = { 0.6 , 0.2};
+static float angle_pid_1[3] = { 0.2,0.1};
+static float angle_pid_2[3] = { 0.4,0.2};
  //定义存储从20degree开始逐次增加5，至60degree的正余弦值
 /*
  * 预先计算好的正弦和余弦值数组
@@ -371,7 +368,7 @@ void pid_select(){
 			if(curvatureRight > 5000.0 || curvatureLeft > 5000.0){
 				Kp = angle_pid_2[0];
 				Kd = angle_pid_2[1];
-                speed = 60;
+                speed = 55;
                 mode=2;
 			}else{
 				Kp = angle_pid_1[0];
@@ -420,23 +417,20 @@ void avoid_obstacle(){
 	if (dis_l < dis_min && angle_0<0) Servo_Control(0);
 	if (dis_r < dis_min && angle_0>0) Servo_Control(0);
 }
-
 void run(double kp, double kd, int max_dis)
 {
 	// lyh的idea 目前的最优算法 update at 2023.10.12
-	 int dis_min_front = 9999; // 记录前方张角30度内的最短距离
+	// int dis_min_front = 9999; // 记录前方张角30度内的最短距离
 	// // 计算前方张角30度内的最短距离
 	// // for (int i=150; i<=210; ++i){
 	// // 	if (diss[i]!=0 && diss[i]<dis_min_front) dis_min_front = diss[i];
 	// // }
-	dis_min_front = avg_dis(diss+170,21);
-	 // 如果前方有障碍物，那么小车减速
-	 if (dis_min_front < 800 && dis_min_front >= 500) Speed_Control(60);
-	 else if (dis_min_front < 500) Speed_Control(59);
-	 else Speed_Control(70);
+	// dis_min_front = avg_dis(diss+170,21);
+	// // 如果前方有障碍物，那么小车减速
+	// if (dis_min_front < 800 && dis_min_front >= 500) Speed_Control(60);
+	// else if (dis_min_front < 500) Speed_Control(55);
+	// else Speed_Control(70);
     Speed_Control(speed);
-	
-	
 	// 计算前方赛道中心点的方位，使用pid逼近那个点
     int count = 0;
     int index1 = 0, dis1 = 0; // 临时变量
@@ -477,26 +471,25 @@ void run(double kp, double kd, int max_dis)
     }
     double target_angle;
 	/*采用中线算法*/
-	double oppsite_side = sqrt(pow(dis_1, 2) + pow(dis_2, 2) - 2 * dis_1 * dis_2 * cos((idx_2 - idx_1) * PI / 180));
-	double mid_line = sqrt((pow(dis_1, 2)+pow(dis_2, 2))/2-pow(oppsite_side, 2)/4);
-	double offset_angle = acos((pow(dis_1, 2)+pow(mid_line, 2)-pow(oppsite_side/2, 2))/(2*dis_1*mid_line));
-	target_angle = idx_1 + offset_angle * 180 / PI;
-  double error_mid = target_angle - 180;
-	// /*采用比例算法*/
 
-	double lambda = 0.6;
+	// double oppsite_side = sqrt(pow(dis_1, 2) + pow(dis_2, 2) - 2 * dis_1 * dis_2 * cos((idx_2 - idx_1) * PI / 180));
+	// double mid_line = sqrt((pow(dis_1, 2)+pow(dis_2, 2))/2-pow(oppsite_side, 2)/4);
+	// double offset_angle = acos((pow(dis_1, 2)+pow(mid_line, 2)-pow(oppsite_side/2, 2))/(2*dis_1*mid_line));
+	// target_angle = idx_1 + offset_angle * 180 / PI;
+  
+	// /*采用比例算法*/
+	double lambda=0.4;
 	// if (diss[(int)idx_1]-diss[(int)idx_2] > 100) lambda = 0.6;
 	// else lambda = 0.4;
 	if (avg_dis(diss+175,10)>1100) lambda = 0.3333;
 	else if (avg_dis(diss+175,10)>900) lambda = 0.4;
-	else if (avg_dis(diss+175,10)>700) lambda = 0.5;
-	else lambda = 0.6;
-	// lambda = 0.5; // 先全部调成0.5 复刻第一轮
+	else if (avg_dis(diss+175,10)>700) lambda = 0.425;
+	else lambda = 0.45;
+	// lambda = 0.45; // 先全部调成0.5 复刻第一轮
 	double dot_ab = dis_1 * dis_2 * cos((idx_2 - idx_1) * PI / 180);
 	double m = sqrt(pow(1-lambda,2)*pow(dis_1,2)+pow(lambda,2)*pow(dis_2,2)+2*(1-lambda)*lambda*dot_ab);
 	double theta = acos(((1-lambda)*pow(dis_1,2)+lambda*dot_ab)/(dis_1*m))*180/PI;
-	double target_angle_ratio = idx_1 + theta;
-  double error_ratio = target_angle_ratio - 180;
+	target_angle = idx_1 + theta;
 
 	/*采用垂线算法*/ 
 	//答辩
@@ -505,34 +498,13 @@ void run(double kp, double kd, int max_dis)
 	// double theta = acos((t*pow(dis_1,2)+dot_ab)/(dis_1*sqrt(pow(t*dis_1,2)+pow(dis_2,2)+2*t*dot_ab)))*180/PI;
 	// double target_angle = idx_1 + theta;
 
-    double w_mid, w_ratio;
-    
-    double error_diff = fabs(error_mid - error_ratio);
-    if (error_diff > 45) {
-        // 算法差异很大，保守策略：主要依赖中线算法
-        w_mid = 0.7;
-        w_ratio = 0.3;
-    }
-    else if (error_diff > 25) {
-        // 中等差异，均衡分配
-        w_mid = 0.5;
-        w_ratio = 0.5;
-    }
-    else {
-        // 算法一致，充分利用所2有信息
-        w_mid = 0.4;
-        w_ratio = 0.6;
-    }
 
-//-------------------- 最终误差融合--------------------------------
-    double final_error = w_mid * error_mid + w_ratio * error_ratio;
-
-
-  // double error = target_angle - 180;  // 逆时针转的时候error一般小于0，顺时针大于0
-      Servo_Control(kp * final_error + kd * (final_error - error_last));
-      avoid_obstacle();
-    error_last = final_error;
-  
+  double error = target_angle - 180;  // 逆时针转的时候error一般小于0，顺时针大于0
+  int angle=kp * error + kd * (error - error_last);
+  if(fabs(angle)<5)angle -=3;//弹道偏右的修正
+    Servo_Control(angle);
+	avoid_obstacle();
+  error_last = error;
 }
 
 /*---------------------------xiahei的荣誉地带-----------------------------*/
@@ -622,9 +594,9 @@ int car_stop_judgment_back(MS200_Point* points,int car_time){
     if(points[160].distance < 30.0f || points[203].distance < 30.0f)
         return 0;
 
-    if(points[160].distance < (STOP_160 + car_back_number * stop_woring))
+    if(points[160].distance < (STOP_160 + 5 * stop_woring))
         return -2;
-    if(points[203].distance < (STOP_203 + car_back_number * stop_woring))
+    if(points[203].distance < (STOP_203 + 5 * stop_woring))
         return -1;
 }
 /*
@@ -633,7 +605,7 @@ int car_stop_judgment_back(MS200_Point* points,int car_time){
 void run2(int stop_front,int stop_back,int car_time){
 
     if(stop_front == 0 ){
-        run(Kp, Kd, 750);
+        run(Kp, Kd, 1250);
     }
     
     if(stop_front == -1 && car_time > back_run_time)
@@ -675,7 +647,8 @@ void run2(int stop_front,int stop_back,int car_time){
 /*--------------------------xiahei的荣誉地带------------------------------*/
 /*
  * 主函数
- * 程序入口，负责初始化硬件、主循环逻辑等
+ * 程序入口，负责初始化硬件、主循环逻辑等double idx_1 = 0, idx_2 = 0; // 记录的最远的两个点的索引
+	double dis_1 = 0, dis_2 = 0;
  * 返回值: 0
  */
 int main(void){
@@ -723,12 +696,14 @@ int main(void){
     points = MS200_GetPointsData();
 	pid_select();
     static int remapped_diss[360]; 
-
+    static	float currentData = 0.0f;
+	static	float lastData = 0.0f;
     // 在一个循环内，直接从 points 读取，并存放到旋转后的正确位置
     for (int i = 0; i < 360; i++) {
     // 读取原始数据 points[i] (0度是前方)
     // 直接存入 remapped_diss 的目标位置 (180度是前方)
-      remapped_diss[(i + 180) % 360] = (int)points[i].distance;
+        judge_data_abondan(i, points, &currentData, &lastData);
+        remapped_diss[(i + 180) % 360] = (int)points[i].distance;
     }
 
     // 最后一步仍然需要 memcpy，将排好序的数据复制回全局的 diss 数组
@@ -783,8 +758,8 @@ int main(void){
 
 
     OLED_Clear();		
-	OLED_ShowFloat(0,0,(double)back_run_time);
-	OLED_ShowFloat(60,0,points[62].distance);
+	OLED_ShowFloat(0,0,avg_dis(diss+175,10));
+	OLED_ShowFloat(60,0,mode);
 	OLED_ShowFloat(0,32,0.0f);
 	OLED_ShowFloat(60,32,points[300].distance);
 	OLED_ShowFloat(0,48, (double)stop_front);
