@@ -1,5 +1,9 @@
 RoboCup 2025 标准竞速代码
 demo
-<video width="320" height="240" controls>
-	<source src=“demo.mp4” type="video/mp4">
-</video>
+<iframe 
+    src="./demo.mp4"
+    width="800" 
+    height="450" 
+    frameborder="0" 
+    allowfullscreen>
+</iframe>
